@@ -12,6 +12,12 @@ on:
     branches:
       - main
       - master
+
+permissions:
+  security-events: write  # Ensure proper permissions to upload SARIF results
+  id-token: write
+  contents: read
+
 jobs:
   ngsast-build:
     runs-on: ubuntu-latest
@@ -32,7 +38,7 @@ jobs:
       run: mvn clean package
 
     - name: NextGen Static Analysis
-      run: ${GITHUB_WORKSPACE}/sl analyze --app qwiet-java-demp-gh --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }} --verbose --strict --wait
+      run: ${GITHUB_WORKSPACE}/sl analyze --app qwiet-java-demo-github --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }} --verbose --strict --wait
 
       env:
         SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
@@ -54,7 +60,7 @@ jobs:
 
     - name: Run export.py and generate SARIF report
       run: |
-        APP_NAME=${{ github.event.repository.name }}
+        APP_NAME=${{ github.event.repository.name }}-github
         python3 export.py -f sarif -a $APP_NAME
       env:
         SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
