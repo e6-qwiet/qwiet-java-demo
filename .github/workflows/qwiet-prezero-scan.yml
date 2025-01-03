@@ -1,0 +1,41 @@
+---
+# This workflow integrates Qwiet preZero with GitHub without a rules validation check
+name: Qwiet PreZero
+
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+
+
+jobs:
+  NextGen-Static-Analysis:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup Java JDK v11
+      uses: actions/setup-java@v3
+      with:
+        distribution: zulu
+        java-version: 11
+
+    - name: Download Qwiet CLI
+      run: |
+        curl https://cdn.shiftleft.io/download/sl > ${GITHUB_WORKSPACE}/sl && chmod a+rx ${GITHUB_WORKSPACE}/sl
+
+    - name: Extract branch name
+      shell: bash
+      run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
+      id: extract_branch
+
+    - name: preZero NextGen Static Analysis
+      run: ${GITHUB_WORKSPACE}/sl analyze --strict --app qwiet-java-demo --wait --verbose  --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }}
+
+      env:
+        SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
+        SHIFTLEFT_API_HOST: www.shiftleft.io
+        SHIFTLEFT_GRPC_TELEMETRY_HOST: telemetry.shiftleft.io:443
+        SHIFTLEFT_GRPC_API_HOST: api.shiftleft.io:443
+
+   
