@@ -1,6 +1,6 @@
 ---
 # This workflow integrates Qwiet preZero with GitHub without a rules validation check
-name: Qwiet PreZero
+name: Qwiet PreZero-
 
 on:
   pull_request:
