@@ -46,26 +46,26 @@ jobs:
         SHIFTLEFT_GRPC_TELEMETRY_HOST: telemetry.shiftleft.io:443
         SHIFTLEFT_GRPC_API_HOST: api.shiftleft.io:443
 
-    - name: Download export.py and requirements.txt
-      run: |
-        curl -O https://raw.githubusercontent.com/ShiftLeftSecurity/field-integrations/master/shiftleft-utils/export.py
-        curl -O https://raw.githubusercontent.com/ShiftLeftSecurity/field-integrations/master/shiftleft-utils/config.py
-        curl -O https://raw.githubusercontent.com/ShiftLeftSecurity/field-integrations/master/shiftleft-utils/common.py
-        curl -O https://raw.githubusercontent.com/ShiftLeftSecurity/field-integrations/master/shiftleft-utils/requirements.txt
+  #  - name: Download export.py and requirements.txt
+  #    run: |
+  #      curl -O https://raw.githubusercontent.com/ShiftLeftSecurity/field-integrations/master/shiftleft-utils/export.py
+  #      curl -O https://raw.githubusercontent.com/ShiftLeftSecurity/field-integrations/master/shiftleft-utils/config.py
+  #      curl -O https://raw.githubusercontent.com/ShiftLeftSecurity/field-integrations/master/shiftleft-utils/common.py
+  #      curl -O https://raw.githubusercontent.com/ShiftLeftSecurity/field-integrations/master/shiftleft-utils/requirements.txt
 
-    - name: Install Python dependencies
-      run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install -r requirements.txt
+  #  - name: Install Python dependencies
+  #    run: |
+  #      python3 -m pip install --upgrade pip
+  #      python3 -m pip install -r requirements.txt
 
-    - name: Run export.py and generate SARIF report
-      run: |
-        APP_NAME=${{ github.event.repository.name }}
-        python3 export.py -f sarif -a $APP_NAME
-      env:
-        SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
+  #  - name: Run export.py and generate SARIF report
+  #    run: |
+  #      APP_NAME=${{ github.event.repository.name }}
+  #      python3 export.py -f sarif -a $APP_NAME
+  #    env:
+  #      SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
 
-    - name: Upload SARIF file to GitHub Security Tab
-      uses: github/codeql-action/upload-sarif@v3  
-      with:
-        sarif_file: ./ngsast-report-${{ github.event.repository.name }}-github.sarif  # Correct dynamic path for SARIF output
+  #  - name: Upload SARIF file to GitHub Security Tab
+  #    uses: github/codeql-action/upload-sarif@v3  
+  #    with:
+  #      sarif_file: ./ngsast-report-${{ github.event.repository.name }}-github.sarif  # Correct dynamic path for SARIF output
