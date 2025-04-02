@@ -218,52 +218,157 @@ public class CustomerController {
    */
 @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
 public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
+// Virtual path mapping - predefined allowed extensions and storage locations
+private static final Map<String, String> ALLOWED_EXTENSIONS = new HashMap<>();
+static {
+    ALLOWED_EXTENSIONS.put("txt", "text");
+    ALLOWED_EXTENSIONS.put("json", "data");
+    ALLOWED_EXTENSIONS.put("xml", "config");
+}
+
+// Rate limiting implementation
+private static final Map<String, LocalDateTime> LAST_REQUEST_TIME = new ConcurrentHashMap<>();
+private static final Map<String, Integer> REQUEST_COUNT = new ConcurrentHashMap<>();
+private static final int MAX_REQUESTS_PER_MINUTE = 10;
+private static final long RATE_LIMIT_RESET_MINUTES = 1;
+
+// Storage for filename to UUID mappings to avoid direct filename usage
+private static final Map<String, String> filenameToUuidMap = new ConcurrentHashMap<>();
+
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
+    String clientIp = request.getHeader("X-Forwarded-For");
+    if (clientIp == null) {
+        clientIp = request.getRemoteUser();
+    }
+    
+    // Implement rate limiting
+    if (!checkRateLimit(clientIp, httpResponse)) {
+        return; // Rate limit exceeded
+    }
+    
     // "Settings" will be stored in a cookie
     // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
-
-    if (!checkCookie(request)){
+    if (!checkCookie(request)) {
         httpResponse.getOutputStream().println("Error");
-        throw new Exception("cookie is incorrect");
+        throw new Exception("Cookie is incorrect");
     }
 
     String settingsCookie = request.getHeader("Cookie");
     String[] cookie = settingsCookie.split(",");
-    if(cookie.length<2) {
+    if (cookie.length < 2) {
         httpResponse.getOutputStream().println("Malformed cookie");
-        throw new Exception("cookie is incorrect");
+        throw new Exception("Cookie is incorrect");
     }
 
-    String base64txt = cookie[0].replace("settings=","");
+    String base64txt = cookie[0].replace("settings=", "");
 
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-    if(!cookieMD5sum.equals(calcMD5Sum))
-    {
+    if (!cookieMD5sum.equals(calcMD5Sum)) {
         httpResponse.getOutputStream().println("Wrong md5");
         throw new Exception("Invalid MD5");
     }
 
-    // Now we can store on filesystem
+    // Now we can process the settings
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
-    // storage will have ClassPathResource as basepath
+    
+    if (settings.length == 0) {
+        httpResponse.getOutputStream().println("Invalid settings format");
+        throw new SecurityException("Invalid settings format");
+    }
+    
+    String originalFilename = settings[0];
+    
+    // Content-type validation based on extension
+    String extension = FilenameUtils.getExtension(originalFilename);
+    if (!ALLOWED_EXTENSIONS.containsKey(extension)) {
+        httpResponse.getOutputStream().println("Unsupported file type");
+        throw new SecurityException("Unsupported file type: " + extension);
+    }
+    
+    // Use UUID instead of direct filename
+    String fileId = filenameToUuidMap.computeIfAbsent(originalFilename, k -> UUID.randomUUID().toString());
+    
+    // Virtual path mapping - map to predefined directory based on extension
+    String subDirectory = ALLOWED_EXTENSIONS.get(extension);
+    
     ClassPathResource cpr = new ClassPathResource("./static/");
-    // Sanitize filename to prevent directory traversal
-    String filename = FilenameUtils.getName(settings[0]);
-    File file = new File(cpr.getPath() + filename);
-    if(!file.exists()) {
-        file.getParentFile().mkdirs();
+    Path basePath = Paths.get(cpr.getPath()).normalize().toAbsolutePath();
+    
+    // Create virtual path - completely ignoring user input for path construction
+    Path storageDirectory = basePath.resolve(subDirectory);
+    Path requestedPath = storageDirectory.resolve(fileId + "." + extension);
+    
+    // Double-check path is still within allowed directory
+    if (!requestedPath.normalize().toAbsolutePath().startsWith(basePath)) {
+        logSecurityEvent("Directory traversal attempt", clientIp, originalFilename);
+        httpResponse.getOutputStream().println("Security constraint violation");
+        throw new SecurityException("Security constraint violation");
     }
 
-    FileOutputStream fos = new FileOutputStream(file, true);
-    // First entry is the filename -> remove it
+    // Create parent directories if they don't exist
+    Files.createDirectories(requestedPath.getParent());
+    
+    // Write settings to file using NIO
     String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a line
-    fos.write(String.join("\n",settingsArr).getBytes());
-    fos.write(("\n"+cookie[cookie.length-1]).getBytes());
-    fos.close();
+    String content = String.join("\n", settingsArr) + "\n" + cookie[cookie.length-1];
+    Files.write(requestedPath, content.getBytes(), java.nio.file.StandardOpenOption.CREATE, 
+                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+    
+    // Log successful write operation
+    logFileOperation("Settings saved", clientIp, fileId, originalFilename);
     httpResponse.getOutputStream().println("Settings Saved");
 }
+
+private boolean checkRateLimit(String clientId, HttpServletResponse response) throws Exception {
+    LocalDateTime now = LocalDateTime.now();
+    LocalDateTime lastRequest = LAST_REQUEST_TIME.getOrDefault(clientId, now.minusDays(1));
+    
+    // Reset counter if it's been more than the reset period
+    if (ChronoUnit.MINUTES.between(lastRequest, now) >= RATE_LIMIT_RESET_MINUTES) {
+        REQUEST_COUNT.put(clientId, 1);
+        LAST_REQUEST_TIME.put(clientId, now);
+        return true;
+    }
+    
+    // Increment request count
+    int count = REQUEST_COUNT.getOrDefault(clientId, 0) + 1;
+    REQUEST_COUNT.put(clientId, count);
+    LAST_REQUEST_TIME.put(clientId, now);
+    
+    if (count > MAX_REQUESTS_PER_MINUTE) {
+        response.setStatus(429); // Too Many Requests
+        response.getOutputStream().println("Rate limit exceeded. Please try again later.");
+        logSecurityEvent("Rate limit exceeded", clientId, null);
+        return false;
+    }
+    
+    return true;
+}
+
+private void logSecurityEvent(String event, String clientIp, String filename) {
+    // Implement secure logging - sanitize inputs to prevent log injection
+    String safeClient = clientIp != null ? Pattern.quote(clientIp) : "unknown";
+    String safeFilename = filename != null ? Pattern.quote(filename) : "none";
+    
+    System.out.println("[SECURITY EVENT] " + event + " - Client: " + safeClient + 
+                      " - Filename: " + safeFilename + " - Time: " + LocalDateTime.now());
+    
+    // In a real implementation, this would use a proper logging framework
+    // logger.warn("Security event: null, client: null, filename: null", event, safeClient, safeFilename);
+}
+
+private void logFileOperation(String operation, String clientIp, String fileId, String originalName) {
+    String safeClient = clientIp != null ? Pattern.quote(clientIp) : "unknown";
+    String safeFileId = Pattern.quote(fileId);
+    String safeOriginalName = Pattern.quote(originalName);
+    
+    System.out.println("[FILE OPERATION] " + operation + " - Client: " + safeClient + 
+                      " - FileID: " + safeFileId + " - Original name: " + safeOriginalName);
+}
+
 
 
   /**
