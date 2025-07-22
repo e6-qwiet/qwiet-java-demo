@@ -19,11 +19,6 @@ on:
       - main
       - master
 
-permissions:
-  security-events: write  # Ensure proper permissions to upload SARIF results
-  id-token: write
-  contents: read
-
 jobs:
   ngsast-build:
     runs-on: ubuntu-latest
