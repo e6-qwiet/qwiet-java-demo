@@ -2,6 +2,12 @@
 # Visit https://docs.shiftleft.io for help
 name: Qwiet
 
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
 on:
   pull_request:
   workflow_dispatch:
@@ -22,11 +28,7 @@ jobs:
   ngsast-build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-
-    - name: Download the Qwiet CLI and set permissions
-      run: |
-        curl https://cdn.shiftleft.io/download/sl > ${GITHUB_WORKSPACE}/sl && chmod a+rx ${GITHUB_WORKSPACE}/sl
+    - uses: actions/checkout@v4
 
     # Qwiet requires Java 1.8
     - name: Set up Java
@@ -37,14 +39,13 @@ jobs:
     - name: Package with Maven
       run: mvn clean package
 
-    - name: NextGen Static Analysis
-      run: ${GITHUB_WORKSPACE}/sl analyze --app ${{ github.event.repository.name }} --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }} --verbose --strict --wait
-
-      env:
-        SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
-        SHIFTLEFT_API_HOST: www.shiftleft.io
-        SHIFTLEFT_GRPC_TELEMETRY_HOST: telemetry.shiftleft.io:443
-        SHIFTLEFT_GRPC_API_HOST: api.shiftleft.io:443
+    - uses: elangosenthilnathan/QwietTemplate@main
+      with:
+        shiftleft-access-token: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
+        verbose: true
+        strict: false
+        wait: true
+        importGitHub: false
 
   #  - name: Download export.py and requirements.txt
   #    run: |
