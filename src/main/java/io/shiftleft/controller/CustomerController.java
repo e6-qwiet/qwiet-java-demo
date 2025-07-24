@@ -217,20 +217,26 @@ public class CustomerController {
    * @param request
    * @throws Exception
    */
-  @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
   public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
+    // Add logger for security auditing
+    Logger logger = LoggerFactory.getLogger(getClass());
+    logger.info("Settings save attempt from IP: " + request.getRemoteAddr());
+
     // "Settings" will be stored in a cookie
     // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
 
     if (!checkCookie(request)){
+      logger.warn("Invalid cookie provided from IP: " + request.getRemoteAddr());
       httpResponse.getOutputStream().println("Error");
       throw new Exception("cookie is incorrect");
     }
 
     String settingsCookie = request.getHeader("Cookie");
     String[] cookie = settingsCookie.split(",");
-	if(cookie.length<2) {
-	  httpResponse.getOutputStream().println("Malformed cookie");
+    if(cookie.length<2) {
+      logger.warn("Malformed cookie from IP: " + request.getRemoteAddr());
+      httpResponse.getOutputStream().println("Malformed cookie");
       throw new Exception("cookie is incorrect");
     }
 
@@ -239,17 +245,56 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+    if(!cookieMD5sum.equals(calcMD5Sum))
     {
+      logger.warn("MD5 validation failed from IP: " + request.getRemoteAddr());
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
     }
 
     // Now we can store on filesystem
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
-	// storage will have ClassPathResource as basepath
+    
+    // Create a dedicated user_settings directory and restrict file operations
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    Path basePath = Paths.get(cpr.getPath(), "user_settings").normalize();
+    
+    String originalFilename = settings[0];
+    
+    // Implement whitelist approach for filename validation
+    if (!originalFilename.matches("^[a-zA-Z0-9._-]+$")) {
+      logger.warn("Invalid filename format from IP: " + request.getRemoteAddr() + 
+                  ", attempted filename: " + originalFilename);
+      httpResponse.getOutputStream().println("Invalid filename format");
+      throw new SecurityException("Filename contains disallowed characters");
+    }
+    
+    // Enhanced filename validation using Java standard libraries
+    String sanitizedFileName = originalFilename;
+    
+    // Implement file extension validation
+    String fileExtension = FilenameUtils.getExtension(sanitizedFileName);
+    List<String> allowedExtensions = Arrays.asList("txt", "json", "xml");
+    if (!allowedExtensions.contains(fileExtension.toLowerCase())) {
+      logger.warn("Unsupported file type from IP: " + request.getRemoteAddr() + 
+                  ", attempted extension: " + fileExtension);
+      httpResponse.getOutputStream().println("Unsupported file type");
+      throw new SecurityException("File extension not allowed");
+    }
+    
+    // Additional security: ensure the file path is within the allowed directory
+    Path resolvedPath = basePath.resolve(sanitizedFileName).normalize();
+    if (!resolvedPath.startsWith(basePath)) {
+      logger.warn("Directory traversal attempt detected from IP: " + request.getRemoteAddr() + 
+                  ", attempted path: " + originalFilename);
+      httpResponse.getOutputStream().println("Security violation");
+      throw new SecurityException("Directory traversal attempt detected");
+    }
+    
+    // Use the validated path for file operations
+    File file = resolvedPath.toFile();
+    
+    // Create parent directories if needed
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -257,12 +302,19 @@ public class CustomerController {
     FileOutputStream fos = new FileOutputStream(file, true);
     // First entry is the filename -> remove it
     String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
+    // one setting at a line
     fos.write(String.join("\n",settingsArr).getBytes());
     fos.write(("\n"+cookie[cookie.length-1]).getBytes());
     fos.close();
+    
+    logger.info("Settings successfully saved for file: " + sanitizedFileName + 
+               " from IP: " + request.getRemoteAddr());
     httpResponse.getOutputStream().println("Settings Saved");
+    
+    // Note: As suggested in mitigation notes, a better approach would be using a database:
+    // userSettingsRepository.saveSettings(userId, settingsData);
   }
+
 
   /**
    * Debug test for saving and reading a customer
